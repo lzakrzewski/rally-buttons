@@ -14,12 +14,12 @@ public:
     int id;
     int pin;
     int led;
-    int action;
+    uint8_t action;
 
     Bounce2::Button bounce;
     BleKeyboard bleKeyboard;
 
-    Button(const int id, const int pin, const int led, const int action) {
+    Button(const int id, const int pin, const int led, const uint8_t action) {
         this->id = id;
         this->pin = pin;
         this->led = led;
@@ -37,17 +37,14 @@ public:
         this->bleKeyboard = bleKeyboard;
     }
 
-    void update() {
+    void update(BleKeyboard &bleKeyboard) {
         this->bounce.update();
 
         if (this->bounce.fell()) {
             Serial.println("Button . " + static_cast<String>(this->id) + " pressed.");
 
-            if(bleKeyboard.isConnected()) {
-                bleKeyboard.write(this->action);
-            } else {
-                Serial.println("Unable to init BT.");
-            }
+            bleKeyboard.write(this->action);
+            bleKeyboard.write(this->action);
         }
 
         if (this->bounce.isPressed()) {
@@ -81,7 +78,14 @@ void setup() {
 }
 
 void loop() {
-    for (Button &button: buttons) {
-        button.update();
+    if(bleKeyboard.isConnected()) {
+        for (Button &button: buttons) {
+            button.update(bleKeyboard);
+        }
+
+        return;
     }
+
+    Serial.println("Waiting 5 seconds...");
+    delay(5000);
 }
