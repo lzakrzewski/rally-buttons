@@ -2,90 +2,132 @@
 #include <Bounce2.h>
 #include <BleKeyboard.h>
 #include <list>
+#include <WiFi.h>
+#include <esp_sleep.h>
+#include <Keypad.h>
+#include <map>
+#include <lwip/pbuf.h>
 
-#define LED_PIN 2
-#define LED_PIN2 7
-#define BUTTON_PIN 4
-#define BUTTON_PIN2 3
 #define BOUNCE_INTERVAL_IN_MS 100
+#define LONG_PRESS_TIME 500
+#define DEBUG 1
 
-class Button {
-public:
-    int id;
-    int pin;
-    int led;
-    uint8_t action;
-
-    Bounce2::Button bounce;
-    BleKeyboard bleKeyboard;
-
-    Button(const int id, const int pin, const int led, const uint8_t action) {
-        this->id = id;
-        this->pin = pin;
-        this->led = led;
-        this->action = action;
-        this->bounce = Bounce2::Button();
-    }
-
-    void init(const BleKeyboard &bleKeyboard) {
-        pinMode(this->pin, INPUT_PULLUP);
-
-        this->bounce.attach(this->pin, INPUT_PULLUP);
-        this->bounce.interval(BOUNCE_INTERVAL_IN_MS);
-        this->bounce.setPressedState(LOW);
-
-        this->bleKeyboard = bleKeyboard;
-    }
-
-    void update(BleKeyboard &bleKeyboard) {
-        this->bounce.update();
-
-        if (this->bounce.fell()) {
-            Serial.println("Button . " + static_cast<String>(this->id) + " pressed.");
-
-            bleKeyboard.write(this->action);
-            bleKeyboard.write(this->action);
-        }
-
-        if (this->bounce.isPressed()) {
-            digitalWrite(this->led,HIGH);
-        } else {
-            digitalWrite(this->led,LOW);
-        }
-    }
-};
-
-BleKeyboard bleKeyboard("rally buttons", "Tukasz electronics");
-
-std::list<Button> buttons = {
-    Button(1, 3, LED_PIN, KEY_UP_ARROW),
-    Button(2, 4, LED_PIN, KEY_DOWN_ARROW),
-};
-
-void setup() {
-    Serial.begin(115200);
-
-    pinMode(LED_PIN, OUTPUT);
-    pinMode(LED_PIN2, OUTPUT);
-
-    Serial.println("Setup complete.");
-
-    bleKeyboard.begin();
-
-    for (Button &button: buttons) {
-        button.init(bleKeyboard);
+void debug(const std::string& message) {
+    if (DEBUG) {
+        Serial.println(message.c_str());
     }
 }
 
-void loop() {
-    if(bleKeyboard.isConnected()) {
-        for (Button &button: buttons) {
-            button.update(bleKeyboard);
-        }
+class Button {
+public:
+    char id;
+    std::string name;
+    std::function<void()> primaryAction;
 
+    Button(const char id, const std::string &name, const std::function<void()> &action) {
+        this->id = id;
+        this->name = name;
+        this->primaryAction = action;
+    }
+};
+
+class Buttons {
+private:
+    std::map<char, Button> buttons;
+
+    Button getButtonById(const char id) const {
+        return this->buttons.at(id);
+    }
+
+public:
+    Buttons(const std::list<Button> &buttons) {
+        for (const auto &button: buttons) {
+            this->buttons.emplace(button.id, button);
+        }
+    }
+
+    void handle(KeypadEvent key, Keypad keypad) {
+        const Button currentButton = this->getButtonById(key);
+
+        switch (keypad.getState()) {
+            case PRESSED:
+                debug("Button " + currentButton.name + " id pressed.");
+
+                currentButton.primaryAction();
+            break;
+            case IDLE:
+                debug("Button " + currentButton.name + " is idling.");
+                break;
+            case HOLD:
+                debug("Button " + currentButton.name + " is held.");
+
+                break;
+            case RELEASED:
+                debug("Button " + currentButton.name + " is released.");
+                break;
+        }
+    }
+};
+
+const byte COLS = 3;
+const byte ROWS = 2;
+
+byte colPins[COLS] = {10, 8, 6};
+byte rowPins[ROWS] = {2, 1};
+
+char hexaKeys[ROWS][COLS] = {
+    {'1', '2', '3'},
+    {'4', '5', '6'}
+};
+
+Keypad keypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS);
+
+BleKeyboard bleKeyboard("rally buttons", "Tukasz electronics");
+
+Buttons buttons = Buttons(
+    {
+        Button('1', "red-r", []() {
+            bleKeyboard.write(KEY_UP_ARROW);
+        }),
+        Button('2', "yellof-f", []() {
+            bleKeyboard.write(KEY_UP_ARROW);
+            bleKeyboard.write(KEY_UP_ARROW);
+        }),
+        Button('3', "yellof-r", []() {
+            bleKeyboard.write(KEY_DOWN_ARROW);
+        }),
+        Button('4', "blue-f", []() {
+            bleKeyboard.write(KEY_DOWN_ARROW);
+            bleKeyboard.write(KEY_DOWN_ARROW);
+        }),
+        Button('5', "grey-f", []() {
+            bleKeyboard.write(KEY_LEFT_ARROW);
+            bleKeyboard.write(KEY_LEFT_ARROW);
+        }),
+        Button('6', "green-f", []() {
+            bleKeyboard.write(KEY_RIGHT_ARROW);
+            bleKeyboard.write(KEY_RIGHT_ARROW);
+        }),
+    }
+);
+
+void setup() {
+    Serial.begin(115200);
+    keypad.setDebounceTime(BOUNCE_INTERVAL_IN_MS);
+    keypad.setHoldTime(LONG_PRESS_TIME);
+    keypad.addEventListener([] (KeypadEvent key) { buttons.handle(key, keypad); });
+
+    bleKeyboard.begin();
+
+    debug("Setup complete.");
+}
+
+void loop() {
+    keypad.getKey();
+
+    if(bleKeyboard.isConnected()) {
         return;
     }
 
-    Serial.println("Waiting 5 seconds...");
-    delay(5000);
+    delay(10);
 }
