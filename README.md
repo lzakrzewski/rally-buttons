@@ -1,12 +1,18 @@
 # rally-buttons
 Simple c++ code for digital road-books
 
-# keypad matrix
+# keypad matrix v1
 |              | black (col1) | white  (col2) | brown  (col3) | 
 |--------------|--------------|---------------|---------------|
 | green (row1) | red-r        | yellow-f      | yellow-r      |
 | red   (row1) | blue-f       | grey-f        | green-f       |
 
+# keypad matrix v2
+|              | black (col1) | white  (col2) | brown  (col3) | yellow (col4) | 
+|--------------|--------------|---------------|---------------|---------------|
+| green (row1) | red-r        | yellow-f      | yellow-r      |               |
+| red   (row2) | blue-f       | grey-f        | green-f       |               |
+| blue  (row3) |              |               |               | red-f         |
 
 # Todo 
 - [ ] Profile switch 
