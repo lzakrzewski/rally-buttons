@@ -7,8 +7,6 @@
 #include <Keypad.h>
 #include <map>
 #include <lwip/pbuf.h>
-#include <nonstd/optional.hpp>
-#include <typeinfo>
 
 #define BOUNCE_INTERVAL_IN_MS 100
 #define LONG_PRESS_TIME 500
@@ -128,15 +126,15 @@ public:
     }
 };
 
-const byte COLS = 3;
+const byte COLS = 4;
 const byte ROWS = 2;
 
-byte colPins[COLS] = {10, 8, 6};
-byte rowPins[ROWS] = {2, 1};
+byte colPins[COLS] = {3, 2, 1, 4};
+byte rowPins[ROWS] = {10, 8};
 
 char hexaKeys[ROWS][COLS] = {
-    {'1', '2', '3'},
-    {'4', '5', '6'},
+    {'1', '2', '3', '4'},
+    {'5', '6', '7', '8'},
 };
 
 Keypad keypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS);
@@ -145,27 +143,33 @@ BleKeyboard bleKeyboard("rally buttons", "Tukasz electronics");
 
 Buttons buttons = Buttons(
     {
-        Button('1', "red-r", []() {
+        Button('1', "1red-r", []() {
             bleKeyboard.write(KEY_UP_ARROW);
         }),
-        Button('2', "yellof-f", []() {
+        Button('2', "2yellof-f", []() {
             bleKeyboard.write(KEY_UP_ARROW);
             bleKeyboard.write(KEY_UP_ARROW);
         }),
-        Button('3', "yellof-r", []() {
+        Button('3', "3yellof-r", []() {
             bleKeyboard.write(KEY_DOWN_ARROW);
         }),
-        Button('4', "blue-f", []() {
-            bleKeyboard.write(KEY_DOWN_ARROW);
-            bleKeyboard.write(KEY_DOWN_ARROW);
-        }),
-        Button('5', "grey-f", []() {
+        Button('4', "4red-f", []() {
             bleKeyboard.write(KEY_LEFT_ARROW);
             bleKeyboard.write(KEY_LEFT_ARROW);
         }),
-        Button('6', "green-f", []() {
+        Button('5', "5blue-f", []() {
+            bleKeyboard.write(KEY_DOWN_ARROW);
+            bleKeyboard.write(KEY_DOWN_ARROW);
+        }),
+        Button('6', "6grey-f", []() {
             bleKeyboard.write(KEY_RIGHT_ARROW);
             bleKeyboard.write(KEY_RIGHT_ARROW);
+        }),
+        Button('7', "7green-f", []() {
+            bleKeyboard.write(KEY_LEFT_ARROW);
+            bleKeyboard.write(KEY_LEFT_ARROW);
+        }),
+        Button('8', "8unknown", []() {
         }),
     },
     ProfileSwitch()
