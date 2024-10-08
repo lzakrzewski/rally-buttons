@@ -11,6 +11,7 @@
 #define BOUNCE_INTERVAL_IN_MS 100
 #define LONG_PRESS_TIME 500
 #define DEBUG 1
+#define DEFAULT_PROFILE "enduro_rally"
 
 void debug(const std::string &message) {
     if (DEBUG) {
@@ -31,19 +32,70 @@ public:
     }
 };
 
+class ProfileSwitch {
+private:
+    std::string defaultProfile;
+
+public:
+    nonstd::optional<Button> currentlyPressedButton;
+    nonstd::optional<int> currentlyPressedButtonAt;
+    nonstd::optional<int> currentlyPressedButtonDuration;
+
+    nonstd::optional<Button> previouslyPressedButton;
+    nonstd::optional<int> previouslyPressedButtonDuration;
+
+    ProfileSwitch() {
+        this->defaultProfile = DEFAULT_PROFILE;
+    }
+
+    void trackButtonPressed(Button button) {
+        this->previouslyPressedButton = this->currentlyPressedButton;
+        this->previouslyPressedButtonDuration = this->previouslyPressedButtonDuration;
+
+        this->currentlyPressedButton = nonstd::optional<Button>(button);
+        this->currentlyPressedButtonAt = nonstd::optional<int>(millis());
+    }
+
+    void trackButtonReleased() {
+        this->currentlyPressedButtonDuration = millis() - this->currentlyPressedButtonAt.value();
+    }
+
+    void handleProfileSwitch() {
+        debug("Current duration:  type: " + (int) this->currentlyPressedButtonDuration.value());
+
+
+        if (!this->currentlyPressedButton.has_value()) {
+            debug("No need to switch profile, button not yet pressed");
+            return;
+        }
+
+
+
+        if (!this->previouslyPressedButtonDuration.has_value()) {
+            debug("No need to switch profile, previous button not yet pressed");
+            return;
+        }
+
+        debug("Previous duration: " + this->previouslyPressedButtonDuration.value());
+    }
+};
+
 class Buttons {
 private:
     std::map<char, Button> buttons;
+    ProfileSwitch profileSwitch;
 
     Button getButtonById(const char id) const {
         return this->buttons.at(id);
     }
 
 public:
-    Buttons(const std::list<Button> &buttons) {
+    Buttons(const std::list<Button> &buttons, const ProfileSwitch &profileSwitch): profileSwitch() {
         for (const auto &button: buttons) {
             this->buttons.emplace(button.id, button);
         }
+
+        this->profileSwitch = profileSwitch;
     }
 
     void handle(KeypadEvent key, Keypad keypad) {
@@ -53,6 +105,7 @@ public:
             case PRESSED:
                 debug("Button " + currentButton.name + " id pressed.");
 
+                this->profileSwitch.trackButtonPressed(currentButton);
                 currentButton.primaryAction();
                 break;
             case IDLE:
@@ -64,6 +117,10 @@ public:
                 break;
             case RELEASED:
                 debug("Button " + currentButton.name + " is released.");
+
+                this->profileSwitch.trackButtonReleased();
+                this->profileSwitch.handleProfileSwitch();
+
                 break;
         }
     }
@@ -114,7 +171,8 @@ Buttons buttons = Buttons(
         }),
         Button('8', "8unknown", []() {
         }),
-    }
+    },
+    ProfileSwitch()
 );
 
 void setup() {
