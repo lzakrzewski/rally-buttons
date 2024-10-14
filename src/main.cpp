@@ -72,8 +72,8 @@ public:
 const byte COLS = 4;
 const byte ROWS = 2;
 
-byte colPins[COLS] = {3, 2, 1, 4};
-byte rowPins[ROWS] = {10, 8};
+byte colPins[COLS] = {1, 0, 4, 5};
+byte rowPins[ROWS] = {2, 3};
 
 char hexaKeys[ROWS][COLS] = {
     {'1', '2', '3', '4'},
