@@ -6,12 +6,15 @@
 #include <esp_sleep.h>
 #include <Keypad.h>
 #include <map>
+#include <unordered_map>
+#include <utility>
 #include <lwip/pbuf.h>
 
 #define BOUNCE_INTERVAL_IN_MS 100
 #define LONG_PRESS_TIME 500
 #define DEBUG 1
-#define DEFAULT_PROFILE "enduro_rally"
+#define DEFAULT_MAP "enduro_rally"
+#define SECONDARY_MAP "locus"
 
 void debug(const std::string &message) {
     if (DEBUG) {
@@ -19,83 +22,87 @@ void debug(const std::string &message) {
     }
 }
 
+struct ButtonActivity {
+    std::string button;
+    unsigned long occuredAt;
+
+    ButtonActivity(const std::string &button, unsigned long occuredAt) {
+        this->button = button;
+        this->occuredAt = occuredAt;
+    }
+};
+
 class Button {
 public:
     char id;
     std::string name;
     std::function<void()> primaryAction;
+    bool isMapSelector;
+    std::string map;
 
-    Button(const char id, const std::string &name, const std::function<void()> &action) {
+    Button(
+        const char id,
+        const std::string &name,
+        const std::function<void()> &action,
+        const bool isMapSelector,
+        const std::string &map
+    ) {
         this->id = id;
         this->name = name;
         this->primaryAction = action;
+        this->isMapSelector = isMapSelector;
+        this->map = map;
     }
 };
 
-class ProfileSwitch {
-private:
-    std::string defaultProfile;
+class ButtonTracker {
+    std::unordered_map<std::string, ButtonActivity> buttonPressedActivities;
+    std::unordered_map<std::string, ButtonActivity> buttonReleasedActivities;
 
 public:
-    nonstd::optional<Button> currentlyPressedButton;
-    nonstd::optional<int> currentlyPressedButtonAt;
-    nonstd::optional<int> currentlyPressedButtonDuration;
-
-    nonstd::optional<Button> previouslyPressedButton;
-    nonstd::optional<int> previouslyPressedButtonDuration;
-
-    ProfileSwitch() {
-        this->defaultProfile = DEFAULT_PROFILE;
+    ButtonTracker() {
     }
 
-    void trackButtonPressed(Button button) {
-        this->previouslyPressedButton = this->currentlyPressedButton;
-        this->previouslyPressedButtonDuration = this->previouslyPressedButtonDuration;
-
-        this->currentlyPressedButton = nonstd::optional<Button>(button);
-        this->currentlyPressedButtonAt = nonstd::optional<int>(millis());
+    void trackButtonPressed(const Button &button) {
+        this->buttonPressedActivities.emplace(button.name, ButtonActivity(button.name, millis()));
     }
 
-    void trackButtonReleased() {
-        this->currentlyPressedButtonDuration = millis() - this->currentlyPressedButtonAt.value();
+    void trackButtonReleased(const Button &button) {
+        this->buttonReleasedActivities.emplace(button.name, ButtonActivity(button.name, millis()));
     }
 
-    void handleProfileSwitch() {
-        debug("Current duration:  type: " + (int) this->currentlyPressedButtonDuration.value());
+    bool hasBeenPressedFor(const Button &button, int8_t seconds) {
+        unsigned long diff = this->buttonReleasedActivities.at(button.name).occuredAt
+                             - this->buttonPressedActivities.at(button.name).occuredAt;
 
+        debug("Diff:  " + std::to_string(diff));
 
-        if (!this->currentlyPressedButton.has_value()) {
-            debug("No need to switch profile, button not yet pressed");
-            return;
+        if ((diff / 1000) >= seconds) {
+            return true;
         }
 
-
-
-        if (!this->previouslyPressedButtonDuration.has_value()) {
-            debug("No need to switch profile, previous button not yet pressed");
-            return;
-        }
-
-        debug("Previous duration: " + this->previouslyPressedButtonDuration.value());
+        return false;
     }
 };
 
 class Buttons {
-private:
     std::map<char, Button> buttons;
-    ProfileSwitch profileSwitch;
+    ButtonTracker tracker;
+    bool isSelectingMap;
+    std::string currentMap;
 
     Button getButtonById(const char id) const {
         return this->buttons.at(id);
     }
 
 public:
-    Buttons(const std::list<Button> &buttons, const ProfileSwitch &profileSwitch): profileSwitch() {
+    Buttons(const std::list<Button> &buttons, const ButtonTracker &tracker): isSelectingMap(false),
+                                                                             currentMap(DEFAULT_MAP) {
         for (const auto &button: buttons) {
             this->buttons.emplace(button.id, button);
         }
 
-        this->profileSwitch = profileSwitch;
+        this->tracker = tracker;
     }
 
     void handle(KeypadEvent key, Keypad keypad) {
@@ -105,8 +112,17 @@ public:
             case PRESSED:
                 debug("Button " + currentButton.name + " id pressed.");
 
-                this->profileSwitch.trackButtonPressed(currentButton);
-                currentButton.primaryAction();
+                this->tracker.trackButtonPressed(currentButton);
+
+                if (this->isSelectingMap) {
+                    this->isSelectingMap = false;
+
+                    debug("Map " + currentButton.map + "selected");
+
+                } else {
+                    currentButton.primaryAction();
+                }
+
                 break;
             case IDLE:
                 debug("Button " + currentButton.name + " is idling.");
@@ -118,8 +134,13 @@ public:
             case RELEASED:
                 debug("Button " + currentButton.name + " is released.");
 
-                this->profileSwitch.trackButtonReleased();
-                this->profileSwitch.handleProfileSwitch();
+                this->tracker.trackButtonReleased(currentButton);
+
+                if (currentButton.isMapSelector && this->tracker.hasBeenPressedFor(currentButton, 10)) {
+                    this->isSelectingMap = true;
+
+                    debug("Currently selecting map...");
+                }
 
                 break;
         }
@@ -139,40 +160,82 @@ char hexaKeys[ROWS][COLS] = {
 
 Keypad keypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS);
 
-BleKeyboard bleKeyboard("rally buttons", "Tukasz electronics");
+BleKeyboard bleKeyboard("rally buttons", "behind.bushes electronics");
 
 Buttons buttons = Buttons(
     {
-        Button('1', "1red-r", []() {
-            bleKeyboard.write(KEY_UP_ARROW);
-        }),
-        Button('2', "2yellof-f", []() {
-            bleKeyboard.write(KEY_UP_ARROW);
-            bleKeyboard.write(KEY_UP_ARROW);
-        }),
-        Button('3', "3yellof-r", []() {
-            bleKeyboard.write(KEY_DOWN_ARROW);
-        }),
-        Button('4', "4red-f", []() {
-            bleKeyboard.write(KEY_LEFT_ARROW);
-            bleKeyboard.write(KEY_LEFT_ARROW);
-        }),
-        Button('5', "5blue-f", []() {
-            bleKeyboard.write(KEY_DOWN_ARROW);
-            bleKeyboard.write(KEY_DOWN_ARROW);
-        }),
-        Button('6', "6grey-f", []() {
-            bleKeyboard.write(KEY_RIGHT_ARROW);
-            bleKeyboard.write(KEY_RIGHT_ARROW);
-        }),
-        Button('7', "7green-f", []() {
-            bleKeyboard.write(KEY_LEFT_ARROW);
-            bleKeyboard.write(KEY_LEFT_ARROW);
-        }),
-        Button('8', "8unknown", []() {
-        }),
+        Button(
+            '1',
+            "1red-r",
+            []() {
+                bleKeyboard.write(KEY_UP_ARROW);
+            },
+            false,
+            DEFAULT_MAP
+        ),
+        Button(
+            '2',
+            "2yellof-f",
+            []() {
+                bleKeyboard.write(KEY_UP_ARROW);
+                bleKeyboard.write(KEY_UP_ARROW);
+            },
+            false,
+            DEFAULT_MAP
+        ),
+        Button(
+            '3',
+            "3yellof-r", []() {
+                bleKeyboard.write(KEY_DOWN_ARROW);
+            },
+            false,
+            DEFAULT_MAP
+        ),
+        Button(
+            '4',
+            "4red-f", []() {
+                bleKeyboard.write(KEY_LEFT_ARROW);
+                bleKeyboard.write(KEY_LEFT_ARROW);
+            },
+            false,
+            DEFAULT_MAP
+        ),
+        Button(
+            '5',
+            "5blue-f", []() {
+                bleKeyboard.write(KEY_DOWN_ARROW);
+                bleKeyboard.write(KEY_DOWN_ARROW);
+            },
+            false,
+            DEFAULT_MAP
+        ),
+        Button(
+            '6',
+            "6grey-f", []() {
+                bleKeyboard.write(KEY_RIGHT_ARROW);
+                bleKeyboard.write(KEY_RIGHT_ARROW);
+            },
+            false,
+            SECONDARY_MAP
+        ),
+        Button(
+            '7',
+            "7green-f", []() {
+                bleKeyboard.write(KEY_LEFT_ARROW);
+                bleKeyboard.write(KEY_LEFT_ARROW);
+            },
+            true,
+            DEFAULT_MAP
+        ),
+        Button(
+            '8',
+            "8unknown", []() {
+            },
+            false,
+            DEFAULT_MAP
+        ),
     },
-    ProfileSwitch()
+    ButtonTracker()
 );
 
 void setup() {
